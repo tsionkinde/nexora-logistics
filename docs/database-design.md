@@ -1,300 +1,332 @@
-# Nexora Logistics - Database Design
+# Nexora Logistics – Database Design
 
 ## 1. Overview
 
-The Nexora Logistics database will use PostgreSQL as its relational database management system.
+Nexora Logistics uses PostgreSQL as its relational database and Prisma ORM for database access.
 
-Prisma ORM will be used to define database models, manage migrations, and interact with the database from the backend.
+The database is designed to support customer orders, shipments, delivery attempts, driver and vehicle assignments, proof of delivery, and shipment tracking.
 
-The database is designed to support order management, shipment processing, delivery scheduling, driver and vehicle assignment, customer tracking, and proof of delivery.
+The design preserves operational history and supports multiple delivery attempts for a single shipment.
 
-## 2. Database Design Principles
+## 2. Main Entities
 
-The database will follow these principles:
+| Entity             | Responsibility                                 |
+| ------------------ | ---------------------------------------------- |
+| User               | Stores login credentials and user roles        |
+| Customer           | Stores customer profile information            |
+| Address            | Stores customer and delivery addresses         |
+| Order              | Represents a customer's order                  |
+| OrderItem          | Stores products or items belonging to an order |
+| Shipment           | Represents a shipment created from an order    |
+| ShipmentItem       | Connects order items to shipments              |
+| Driver             | Stores driver information                      |
+| Vehicle            | Stores vehicle information                     |
+| Delivery           | Represents one delivery attempt for a shipment |
+| DeliveryAssignment | Records driver and vehicle assignments         |
+| ProofOfDelivery    | Stores evidence of successful delivery         |
+| TrackingEvent      | Stores shipment tracking history               |
+| Notification       | Stores notifications sent to users             |
 
-- Use primary keys to uniquely identify records.
+## 3. Entity Relationships
+
+- A User may have one Customer profile.
+- A User may have one Driver profile.
+- A Customer can create multiple Orders.
+- An Order can contain multiple OrderItems.
+- An Order can have multiple Shipments.
+- A Shipment can contain multiple ShipmentItems.
+- A Shipment can have multiple Delivery attempts.
+- A Delivery can have multiple DeliveryAssignments over time.
+- A Delivery can have one ProofOfDelivery.
+- A Shipment can have multiple TrackingEvents.
+- A User can receive multiple Notifications.
+
+## 4. Important Relationship: Shipment and Delivery
+
+A Shipment and a Delivery are not the same thing.
+
+A Shipment represents the goods being transported.
+
+A Delivery represents an attempt to deliver those goods to the customer.
+
+For example:
+
+1. Shipment SHP-001 is created.
+2. A driver attempts delivery on Monday.
+3. The customer is unavailable, so the delivery attempt is marked FAILED.
+4. A new delivery attempt is scheduled for Tuesday.
+5. Another driver is assigned.
+6. The second attempt succeeds.
+7. Proof of Delivery is recorded.
+
+Both delivery attempts remain in the database.
+
+Therefore, the relationship is:
+
+**One Shipment → Many Delivery Attempts**
+
+The `Delivery` table must have a `shipmentId` foreign key that is NOT unique.
+
+## 5. Proposed Entity Fields
+
+The following are the proposed core fields. Additional timestamps, indexes, constraints, and audit fields may be added during implementation.
+
+### User
+
+- id (Primary Key)
+- fullName
+- email (Unique)
+- passwordHash
+- role
+- isActive
+- createdAt
+- updatedAt
+
+### Customer
+
+- id (Primary Key)
+- userId (Foreign Key, Unique)
+- phone
+- createdAt
+- updatedAt
+
+### Address
+
+- id (Primary Key)
+- customerId (Foreign Key)
+- label
+- street
+- city
+- region
+- postalCode
+- country
+- createdAt
+- updatedAt
+
+### Order
+
+- id (Primary Key)
+- orderNumber (Unique)
+- customerId (Foreign Key)
+- deliveryAddressId (Foreign Key)
+- status
+- totalAmount
+- createdAt
+- updatedAt
+
+### OrderItem
+
+- id (Primary Key)
+- orderId (Foreign Key)
+- itemName
+- description
+- quantity
+- unitPrice
+- createdAt
+
+### Shipment
+
+- id (Primary Key)
+- shipmentNumber (Unique)
+- trackingNumber (Unique)
+- orderId (Foreign Key)
+- status
+- createdAt
+- updatedAt
+
+### ShipmentItem
+
+- id (Primary Key)
+- shipmentId (Foreign Key)
+- orderItemId (Foreign Key)
+- quantity
+
+### Driver
+
+- id (Primary Key)
+- userId (Foreign Key, Unique)
+- licenseNumber (Unique)
+- availabilityStatus
+- createdAt
+- updatedAt
+
+### Vehicle
+
+- id (Primary Key)
+- registrationNumber (Unique)
+- vehicleType
+- capacity
+- status
+- createdAt
+- updatedAt
+
+### Delivery
+
+- id (Primary Key)
+- shipmentId (Foreign Key, NOT Unique)
+- deliveryNumber (Unique)
+- status
+- scheduledStart
+- scheduledEnd
+- actualStart
+- completedAt
+- failureReason
+- createdAt
+- updatedAt
+
+Each Delivery record represents a separate attempt to deliver the same shipment.
+
+### DeliveryAssignment
+
+- id (Primary Key)
+- deliveryId (Foreign Key)
+- driverId (Foreign Key)
+- vehicleId (Foreign Key)
+- assignedAt
+- scheduledStart
+- scheduledEnd
+- releasedAt
+- status
+- createdAt
+- updatedAt
+
+Assignments must be retained as history. Reassigning a delivery should not erase previous assignments.
+
+### ProofOfDelivery
+
+- id (Primary Key)
+- deliveryId (Foreign Key, Unique)
+- recipientName
+- recipientConfirmed
+- photoUrl (Optional)
+- signatureUrl (Optional)
+- deliveryNotes
+- submittedAt
+- createdAt
+
+A ProofOfDelivery record belongs to one successful delivery attempt.
+
+### TrackingEvent
+
+- id (Primary Key)
+- shipmentId (Foreign Key)
+- status
+- description
+- location
+- createdAt
+
+Each tracking event records a shipment status update.
+
+### Notification
+
+- id (Primary Key)
+- userId (Foreign Key)
+- title
+- message
+- isRead
+- createdAt
+
+## 6. Status Management
+
+The system uses separate status fields for Orders, Shipments, and Deliveries.
+
+### Order Status
+
+- PENDING
+- CONFIRMED
+- PROCESSING
+- READY_FOR_DISPATCH
+- COMPLETED
+- CANCELLED
+
+An Order is marked COMPLETED only after all its shipments have been successfully delivered.
+
+### Shipment Status
+
+- CREATED
+- PICKED_UP
+- IN_TRANSIT
+- ARRIVED_AT_DESTINATION
+- OUT_FOR_DELIVERY
+- DELIVERED
+- DELIVERY_FAILED
+- RETURNED
+- CANCELLED
+
+A shipment can have several delivery attempts. A failed attempt does not automatically mean the shipment is permanently failed.
+
+When another attempt is scheduled, the shipment can move back to OUT_FOR_DELIVERY when that attempt begins.
+
+### Delivery Status
+
+- SCHEDULED
+- ASSIGNED
+- IN_PROGRESS
+- DELIVERED
+- FAILED
+- RESCHEDULED
+- CANCELLED
+
+Each delivery attempt has its own lifecycle.
+
+A failed or rescheduled attempt remains in the database for historical reference.
+
+## 7. Assignment Rules
+
+- A driver must be active and eligible before assignment.
+- A vehicle must be active and suitable for the delivery.
+- A driver cannot have overlapping active assignments.
+- A vehicle cannot have overlapping active assignments.
+- Completed and cancelled assignments do not block future schedules.
+- Assignment validation must be performed on the backend.
+- Assignment creation must use a database transaction and appropriate concurrency protection to prevent conflicting assignments.
+
+The overlap condition is:
+
+`newStart < existingEnd AND newEnd > existingStart`
+
+## 8. Important Database Constraints
+
+The database should enforce:
+
+- Unique user emails.
+- Unique order numbers.
+- Unique shipment numbers.
+- Unique tracking numbers.
+- Unique driver license numbers.
+- Unique vehicle registration numbers.
+- Unique delivery numbers.
+- One Customer profile per User.
+- One Driver profile per User.
+- One ProofOfDelivery per Delivery.
+- Valid foreign key relationships.
+- Positive item quantities.
+- Nonnegative prices and vehicle capacity.
+- Valid scheduled delivery time ranges.
+
+Business rules that depend on several records, such as assignment conflicts and status transitions, must also be enforced in the backend.
+
+## 9. Order and Shipment Consistency
+
+An order may contain multiple shipments.
+
+The system must not mark an order as COMPLETED when only one of its shipments has been delivered.
+
+The order can be marked COMPLETED when all associated shipments have status DELIVERED.
+
+If an order has no shipments, it cannot be marked COMPLETED.
+
+## 10. Data Integrity and History
+
 - Use foreign keys to maintain relationships.
-- Apply appropriate unique constraints.
-- Use timestamps to track record creation and updates.
-- Validate important business rules in the backend.
-- Use database transactions for critical operations.
-- Avoid unnecessary duplication of data.
-- Preserve shipment and delivery history.
+- Use database transactions for operations involving multiple related records.
+- Preserve delivery attempts and assignment history.
+- Record shipment status changes as TrackingEvents.
+- Avoid permanently deleting important operational records.
+- Use timestamps to maintain an accurate activity history.
 
-## 3. Main Database Tables
+## 11. Design Scope
 
-### 3.1 User
+This database design supports the initial MVP.
 
-Stores system user account information.
-
-| Field        | Type      | Description                                            |
-| ------------ | --------- | ------------------------------------------------------ |
-| id           | UUID      | Primary key                                            |
-| fullName     | VARCHAR   | User's full name                                       |
-| email        | VARCHAR   | Unique email address                                   |
-| passwordHash | VARCHAR   | Hashed password                                        |
-| role         | ENUM      | ADMIN, LOGISTICS_MANAGER, DISPATCHER, DRIVER, CUSTOMER |
-| isActive     | BOOLEAN   | Account status                                         |
-| createdAt    | TIMESTAMP | Account creation time                                  |
-| updatedAt    | TIMESTAMP | Last update time                                       |
-
-### 3.2 Customer
-
-Stores additional information about customers.
-
-| Field       | Type      | Description                            |
-| ----------- | --------- | -------------------------------------- |
-| id          | UUID      | Primary key                            |
-| userId      | UUID      | Unique foreign key referencing User    |
-| companyName | VARCHAR   | Customer's company name, if applicable |
-| phone       | VARCHAR   | Customer contact number                |
-| createdAt   | TIMESTAMP | Creation time                          |
-| updatedAt   | TIMESTAMP | Last update time                       |
-
-A customer profile is associated with one User account.
-
-### 3.3 Address
-
-Stores pickup and delivery addresses.
-
-| Field       | Type      | Description               |
-| ----------- | --------- | ------------------------- |
-| id          | UUID      | Primary key               |
-| contactName | VARCHAR   | Contact person's name     |
-| phone       | VARCHAR   | Contact number            |
-| street      | VARCHAR   | Street or locality        |
-| city        | VARCHAR   | City                      |
-| region      | VARCHAR   | Region or state           |
-| country     | VARCHAR   | Country                   |
-| postalCode  | VARCHAR   | Postal code, if available |
-| createdAt   | TIMESTAMP | Creation time             |
-
-### 3.4 Order
-
-Stores customer orders.
-
-| Field             | Type      | Description                      |
-| ----------------- | --------- | -------------------------------- |
-| id                | UUID      | Primary key                      |
-| orderNumber       | VARCHAR   | Unique order reference           |
-| customerId        | UUID      | Foreign key referencing Customer |
-| pickupAddressId   | UUID      | Foreign key referencing Address  |
-| deliveryAddressId | UUID      | Foreign key referencing Address  |
-| status            | ENUM      | Order status                     |
-| totalAmount       | DECIMAL   | Total declared order value       |
-| notes             | TEXT      | Additional order notes           |
-| createdAt         | TIMESTAMP | Creation time                    |
-| updatedAt         | TIMESTAMP | Last update time                 |
-
-### 3.5 OrderItem
-
-Stores individual items belonging to an order.
-
-| Field         | Type      | Description                   |
-| ------------- | --------- | ----------------------------- |
-| id            | UUID      | Primary key                   |
-| orderId       | UUID      | Foreign key referencing Order |
-| description   | VARCHAR   | Item description              |
-| quantity      | INTEGER   | Number of units               |
-| unitWeight    | DECIMAL   | Weight per unit               |
-| declaredValue | DECIMAL   | Declared value per unit       |
-| createdAt     | TIMESTAMP | Creation time                 |
-
-### 3.6 Shipment
-
-Stores shipment information.
-
-| Field                 | Type      | Description                     |
-| --------------------- | --------- | ------------------------------- |
-| id                    | UUID      | Primary key                     |
-| trackingNumber        | VARCHAR   | Unique tracking number          |
-| orderId               | UUID      | Foreign key referencing Order   |
-| originAddressId       | UUID      | Foreign key referencing Address |
-| destinationAddressId  | UUID      | Foreign key referencing Address |
-| status                | ENUM      | Shipment status                 |
-| estimatedDeliveryDate | TIMESTAMP | Estimated delivery time         |
-| createdAt             | TIMESTAMP | Creation time                   |
-| updatedAt             | TIMESTAMP | Last update time                |
-
-One order may have multiple shipments.
-
-### 3.7 ShipmentItem
-
-Connects shipment records to the items included in each shipment.
-
-| Field       | Type    | Description                        |
-| ----------- | ------- | ---------------------------------- |
-| id          | UUID    | Primary key                        |
-| shipmentId  | UUID    | Foreign key referencing Shipment   |
-| orderItemId | UUID    | Foreign key referencing OrderItem  |
-| quantity    | INTEGER | Quantity included in this shipment |
-
-This allows an order to be divided into multiple shipments.
-
-### 3.8 Driver
-
-Stores driver-specific information.
-
-| Field             | Type      | Description                         |
-| ----------------- | --------- | ----------------------------------- |
-| id                | UUID      | Primary key                         |
-| userId            | UUID      | Unique foreign key referencing User |
-| licenseNumber     | VARCHAR   | Unique driving license number       |
-| licenseExpiryDate | DATE      | License expiration date             |
-| phone             | VARCHAR   | Driver contact number               |
-| isAvailable       | BOOLEAN   | Availability indicator              |
-| createdAt         | TIMESTAMP | Creation time                       |
-| updatedAt         | TIMESTAMP | Last update time                    |
-
-### 3.9 Vehicle
-
-Stores fleet and vehicle information.
-
-| Field              | Type      | Description                              |
-| ------------------ | --------- | ---------------------------------------- |
-| id                 | UUID      | Primary key                              |
-| registrationNumber | VARCHAR   | Unique vehicle registration              |
-| vehicleType        | VARCHAR   | Vehicle category                         |
-| capacityKg         | DECIMAL   | Maximum carrying capacity                |
-| status             | ENUM      | AVAILABLE, IN_USE, MAINTENANCE, INACTIVE |
-| createdAt          | TIMESTAMP | Creation time                            |
-| updatedAt          | TIMESTAMP | Last update time                         |
-
-### 3.10 Delivery
-
-Stores delivery information for a shipment.
-
-| Field          | Type      | Description                             |
-| -------------- | --------- | --------------------------------------- |
-| id             | UUID      | Primary key                             |
-| shipmentId     | UUID      | Unique foreign key referencing Shipment |
-| status         | ENUM      | Delivery status                         |
-| scheduledStart | TIMESTAMP | Planned delivery start                  |
-| scheduledEnd   | TIMESTAMP | Planned delivery end                    |
-| actualStart    | TIMESTAMP | Actual delivery start                   |
-| completedAt    | TIMESTAMP | Delivery completion time                |
-| failureReason  | TEXT      | Reason for unsuccessful delivery        |
-| createdAt      | TIMESTAMP | Creation time                           |
-| updatedAt      | TIMESTAMP | Last update time                        |
-
-### 3.11 DeliveryAssignment
-
-Stores driver and vehicle assignment history.
-
-| Field          | Type      | Description                      |
-| -------------- | --------- | -------------------------------- |
-| id             | UUID      | Primary key                      |
-| deliveryId     | UUID      | Foreign key referencing Delivery |
-| driverId       | UUID      | Foreign key referencing Driver   |
-| vehicleId      | UUID      | Foreign key referencing Vehicle  |
-| scheduledStart | TIMESTAMP | Assignment start                 |
-| scheduledEnd   | TIMESTAMP | Assignment end                   |
-| status         | ENUM      | ACTIVE, COMPLETED, CANCELLED     |
-| assignedById   | UUID      | Foreign key referencing User     |
-| createdAt      | TIMESTAMP | Assignment creation time         |
-
-Assignment records are preserved to maintain assignment history.
-
-### 3.12 ProofOfDelivery
-
-Stores delivery confirmation information.
-
-| Field              | Type      | Description                             |
-| ------------------ | --------- | --------------------------------------- |
-| id                 | UUID      | Primary key                             |
-| deliveryId         | UUID      | Unique foreign key referencing Delivery |
-| recipientName      | VARCHAR   | Person receiving the shipment           |
-| recipientConfirmed | BOOLEAN   | Confirmation of receipt                 |
-| photoUrl           | VARCHAR   | Optional proof image location           |
-| signatureUrl       | VARCHAR   | Optional signature image location       |
-| notes              | TEXT      | Additional delivery notes               |
-| submittedById      | UUID      | Foreign key referencing User            |
-| submittedAt        | TIMESTAMP | Proof submission time                   |
-
-### 3.13 TrackingEvent
-
-Stores shipment status history.
-
-| Field          | Type      | Description                      |
-| -------------- | --------- | -------------------------------- |
-| id             | UUID      | Primary key                      |
-| shipmentId     | UUID      | Foreign key referencing Shipment |
-| previousStatus | VARCHAR   | Previous shipment status         |
-| newStatus      | VARCHAR   | New shipment status              |
-| location       | VARCHAR   | Event location, if available     |
-| description    | TEXT      | Event description                |
-| createdById    | UUID      | Foreign key referencing User     |
-| createdAt      | TIMESTAMP | Event timestamp                  |
-
-### 3.14 Notification
-
-Stores notifications sent to users.
-
-| Field     | Type      | Description                  |
-| --------- | --------- | ---------------------------- |
-| id        | UUID      | Primary key                  |
-| userId    | UUID      | Foreign key referencing User |
-| title     | VARCHAR   | Notification title           |
-| message   | TEXT      | Notification content         |
-| isRead    | BOOLEAN   | Read status                  |
-| createdAt | TIMESTAMP | Creation time                |
-
-## 4. Entity Relationships
-
-| Relationship                     | Cardinality        |
-| -------------------------------- | ------------------ |
-| User - Customer                  | One-to-zero-or-one |
-| User - Driver                    | One-to-zero-or-one |
-| Customer - Order                 | One-to-many        |
-| Address - Order (pickup)         | One-to-many        |
-| Address - Order (delivery)       | One-to-many        |
-| Order - OrderItem                | One-to-many        |
-| Order - Shipment                 | One-to-many        |
-| Shipment - ShipmentItem          | One-to-many        |
-| OrderItem - ShipmentItem         | One-to-many        |
-| Address - Shipment (origin)      | One-to-many        |
-| Address - Shipment (destination) | One-to-many        |
-| Shipment - Delivery              | One-to-one         |
-| Delivery - DeliveryAssignment    | One-to-many        |
-| Driver - DeliveryAssignment      | One-to-many        |
-| Vehicle - DeliveryAssignment     | One-to-many        |
-| Delivery - ProofOfDelivery       | One-to-zero-or-one |
-| Shipment - TrackingEvent         | One-to-many        |
-| User - Notification              | One-to-many        |
-
-## 5. Important Database Constraints
-
-- User email addresses must be unique.
-- Customer user IDs must be unique.
-- Driver user IDs must be unique.
-- Driver license numbers must be unique.
-- Vehicle registration numbers must be unique.
-- Order numbers must be unique.
-- Shipment tracking numbers must be unique.
-- A delivery must belong to one shipment.
-- A shipment must belong to one order.
-- A shipment item must reference a valid order item.
-- Proof of delivery must be associated with one delivery.
-- Assignment scheduling must prevent overlapping active assignments.
-- Quantities and weights must be positive.
-- Delivery end time must be later than delivery start time.
-
-## 6. Data Integrity
-
-Critical operations must use database transactions.
-
-Examples include:
-
-- Creating an order and its order items.
-- Creating a shipment and its shipment items.
-- Assigning a driver and vehicle.
-- Completing a delivery and recording proof.
-- Updating shipment status and creating tracking history.
-
-The backend will enforce business rules that cannot be guaranteed by ordinary database constraints alone.
-
-## 7. Conclusion
-
-This database design provides a structured foundation for the Nexora Logistics MVP.
-
-It supports the core logistics workflows while allowing future improvements such as GPS tracking, route optimization, and external logistics integrations.
+Advanced features such as GPS location history, automatic route optimization, payment processing, and third-party logistics integrations are outside the initial scope.
