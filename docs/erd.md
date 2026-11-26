@@ -1,10 +1,10 @@
-# Nexora Logistics - Entity Relationship Diagram
+# Nexora Logistics – Entity Relationship Diagram (ERD)
 
 ## 1. Overview
 
-This diagram represents the main database entities and their relationships.
+This ER diagram represents the main database entities and their relationships in the Nexora Logistics system.
 
-The system uses PostgreSQL with Prisma ORM.
+The database uses PostgreSQL, with Prisma ORM managing database operations.
 
 ## 2. Entity Relationship Diagram
 
@@ -12,155 +12,150 @@ The system uses PostgreSQL with Prisma ORM.
 erDiagram
     USER ||--o| CUSTOMER : has
     USER ||--o| DRIVER : has
-    USER ||--o{ NOTIFICATION : receives
-    USER ||--o{ DELIVERY_ASSIGNMENT : creates
-    USER ||--o{ TRACKING_EVENT : records
-    USER ||--o{ PROOF_OF_DELIVERY : submits
-
-    CUSTOMER ||--o{ ORDER : places
-
-    ADDRESS ||--o{ ORDER : pickup_address
-    ADDRESS ||--o{ ORDER : delivery_address
-    ADDRESS ||--o{ SHIPMENT : origin
-    ADDRESS ||--o{ SHIPMENT : destination
-
+    CUSTOMER ||--o{ ADDRESS : owns
+    CUSTOMER ||--o{ ORDER : creates
+    ADDRESS ||--o{ ORDER : used_for
     ORDER ||--|{ ORDER_ITEM : contains
     ORDER ||--o{ SHIPMENT : produces
-
     SHIPMENT ||--|{ SHIPMENT_ITEM : contains
     ORDER_ITEM ||--o{ SHIPMENT_ITEM : allocated_to
-
-    SHIPMENT ||--o| DELIVERY : has
-    SHIPMENT ||--o{ TRACKING_EVENT : records
-
-    DELIVERY ||--o{ DELIVERY_ASSIGNMENT : has
-    DELIVERY ||--o| PROOF_OF_DELIVERY : confirmed_by
-
+    SHIPMENT ||--o{ DELIVERY : has_attempts
+    DELIVERY ||--o{ DELIVERY_ASSIGNMENT : has_history
     DRIVER ||--o{ DELIVERY_ASSIGNMENT : assigned_to
-    VEHICLE ||--o{ DELIVERY_ASSIGNMENT : uses
+    VEHICLE ||--o{ DELIVERY_ASSIGNMENT : assigned_to
+    DELIVERY ||--o| PROOF_OF_DELIVERY : has
+    SHIPMENT ||--o{ TRACKING_EVENT : records
+    USER ||--o{ NOTIFICATION : receives
 
     USER {
-        UUID id PK
+        string id PK
         string fullName
         string email UK
         string passwordHash
         string role
         boolean isActive
+        datetime createdAt
+        datetime updatedAt
     }
 
     CUSTOMER {
-        UUID id PK
-        UUID userId FK
-        string companyName
+        string id PK
+        string userId FK, UK
         string phone
-    }
-
-    DRIVER {
-        UUID id PK
-        UUID userId FK
-        string licenseNumber UK
-        date licenseExpiryDate
-        boolean isAvailable
+        datetime createdAt
+        datetime updatedAt
     }
 
     ADDRESS {
-        UUID id PK
-        string contactName
-        string phone
+        string id PK
+        string customerId FK
+        string label
         string street
         string city
         string region
+        string postalCode
         string country
     }
 
     ORDER {
-        UUID id PK
+        string id PK
         string orderNumber UK
-        UUID customerId FK
-        UUID pickupAddressId FK
-        UUID deliveryAddressId FK
+        string customerId FK
+        string deliveryAddressId FK
         string status
         decimal totalAmount
+        datetime createdAt
+        datetime updatedAt
     }
 
     ORDER_ITEM {
-        UUID id PK
-        UUID orderId FK
+        string id PK
+        string orderId FK
+        string itemName
         string description
         int quantity
-        decimal unitWeight
-        decimal declaredValue
+        decimal unitPrice
     }
 
     SHIPMENT {
-        UUID id PK
+        string id PK
+        string shipmentNumber UK
         string trackingNumber UK
-        UUID orderId FK
-        UUID originAddressId FK
-        UUID destinationAddressId FK
+        string orderId FK
         string status
-        datetime estimatedDeliveryDate
+        datetime createdAt
+        datetime updatedAt
     }
 
     SHIPMENT_ITEM {
-        UUID id PK
-        UUID shipmentId FK
-        UUID orderItemId FK
+        string id PK
+        string shipmentId FK
+        string orderItemId FK
         int quantity
     }
 
-    DELIVERY {
-        UUID id PK
-        UUID shipmentId FK
-        string status
-        datetime scheduledStart
-        datetime scheduledEnd
-        datetime completedAt
-    }
-
-    DELIVERY_ASSIGNMENT {
-        UUID id PK
-        UUID deliveryId FK
-        UUID driverId FK
-        UUID vehicleId FK
-        UUID assignedById FK
-        datetime scheduledStart
-        datetime scheduledEnd
-        string status
+    DRIVER {
+        string id PK
+        string userId FK, UK
+        string licenseNumber UK
+        string availabilityStatus
     }
 
     VEHICLE {
-        UUID id PK
+        string id PK
         string registrationNumber UK
         string vehicleType
-        decimal capacityKg
+        decimal capacity
+        string status
+    }
+
+    DELIVERY {
+        string id PK
+        string shipmentId FK
+        string deliveryNumber UK
+        string status
+        datetime scheduledStart
+        datetime scheduledEnd
+        datetime actualStart
+        datetime completedAt
+        string failureReason
+    }
+
+    DELIVERY_ASSIGNMENT {
+        string id PK
+        string deliveryId FK
+        string driverId FK
+        string vehicleId FK
+        datetime assignedAt
+        datetime scheduledStart
+        datetime scheduledEnd
+        datetime releasedAt
         string status
     }
 
     PROOF_OF_DELIVERY {
-        UUID id PK
-        UUID deliveryId FK
+        string id PK
+        string deliveryId FK, UK
         string recipientName
         boolean recipientConfirmed
         string photoUrl
         string signatureUrl
-        UUID submittedById FK
+        string deliveryNotes
         datetime submittedAt
     }
 
     TRACKING_EVENT {
-        UUID id PK
-        UUID shipmentId FK
-        string previousStatus
-        string newStatus
+        string id PK
+        string shipmentId FK
+        string status
+        string description
         string location
-        UUID createdById FK
         datetime createdAt
     }
 
     NOTIFICATION {
-        UUID id PK
-        UUID userId FK
+        string id PK
+        string userId FK
         string title
         string message
         boolean isRead
@@ -168,26 +163,81 @@ erDiagram
     }
 ```
 
-## 3. Relationship Explanation
+## 3. Relationship Explanations
 
-- A user may have a customer profile or driver profile.
-- A customer can place multiple orders.
-- Each order contains one or more order items.
-- One order may produce multiple shipments.
-- Shipment items connect order items to shipments.
-- Each shipment can have one delivery record.
-- Each delivery can have multiple assignment records over time.
-- A driver and vehicle can participate in multiple assignments over time.
-- A completed delivery can have one proof of delivery record.
-- A shipment can have many tracking events.
-- A user can receive multiple notifications.
+| Relationship                  | Explanation                                             |
+| ----------------------------- | ------------------------------------------------------- |
+| User – Customer               | A user may have one customer profile                    |
+| User – Driver                 | A user may have one driver profile                      |
+| Customer – Address            | A customer can save multiple addresses                  |
+| Customer – Order              | A customer can create multiple orders                   |
+| Order – OrderItem             | An order contains one or more items                     |
+| Order – Shipment              | An order can be split into multiple shipments           |
+| Shipment – ShipmentItem       | A shipment contains one or more shipment items          |
+| OrderItem – ShipmentItem      | An order item can be allocated across shipments         |
+| Shipment – Delivery           | A shipment can have multiple delivery attempts          |
+| Delivery – DeliveryAssignment | A delivery can have multiple assignment history records |
+| Driver – DeliveryAssignment   | A driver can have multiple assignments over time        |
+| Vehicle – DeliveryAssignment  | A vehicle can have multiple assignments over time       |
+| Delivery – ProofOfDelivery    | A delivery can have one proof of delivery               |
+| Shipment – TrackingEvent      | A shipment can have multiple tracking events            |
+| User – Notification           | A user can receive multiple notifications               |
 
 ## 4. Important Design Decisions
 
-1. UUIDs are used as primary keys.
-2. Orders and shipments are separate entities because an order may be split into multiple shipments.
-3. ShipmentItem supports partial shipment of order items.
-4. DeliveryAssignment preserves driver and vehicle assignment history.
-5. TrackingEvent preserves shipment status history.
-6. ProofOfDelivery is stored separately to maintain delivery evidence.
-7. Public tracking uses a unique tracking number rather than exposing internal database IDs.
+### Multiple Delivery Attempts
+
+A shipment can have multiple delivery attempts.
+
+For example:
+
+- First attempt: FAILED because the customer was unavailable.
+- Second attempt: RESCHEDULED.
+- Third attempt: DELIVERED successfully.
+
+All attempts remain stored in the database.
+
+### Assignment History
+
+A delivery can have multiple assignment records.
+
+This allows the system to preserve previous driver and vehicle assignments when a delivery is reassigned.
+
+### Proof of Delivery
+
+Each successful delivery attempt can have one ProofOfDelivery record.
+
+A failed attempt does not require a ProofOfDelivery record.
+
+### Shipment Tracking
+
+TrackingEvent stores shipment status history.
+
+Each status update should create a new tracking event rather than overwriting previous events.
+
+### Order Completion
+
+An order is completed only when all its associated shipments have been successfully delivered.
+
+## 5. Database Integrity
+
+The following constraints must be implemented:
+
+- Primary keys for all entities.
+- Foreign keys for relationships.
+- Unique user email addresses.
+- Unique tracking numbers.
+- Unique order and shipment numbers.
+- Unique driver license numbers.
+- Unique vehicle registration numbers.
+- Unique delivery numbers.
+- Unique ProofOfDelivery delivery IDs.
+- Positive quantities.
+- Nonnegative prices and vehicle capacity.
+- Valid delivery scheduling periods.
+
+Additional business rules will be enforced through backend services and database transactions.
+
+## 6. Implementation Note
+
+This ERD represents the planned logical database design. The actual Prisma schema may introduce additional fields, indexes, enums, and constraints during implementation.
